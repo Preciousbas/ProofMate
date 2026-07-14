@@ -12,9 +12,9 @@ interface MoralisHolderSummary {
 
 interface MoralisOwner {
   owner_address: string;
-  owner_address_label?: string;
-  percentage_relative_to_total_supply?: number;
-  is_contract?: boolean;
+  owner_address_label?: string | null;
+  percentage_relative_to_total_supply?: number | null;
+  is_contract?: boolean | null;
 }
 
 interface MoralisOwnersResponse {
@@ -76,22 +76,30 @@ export async function getHoldersDistribution(
   const owners = ownersResult.data;
 
   const topHolders: TopHolder[] =
-    owners?.result?.map((owner) => ({
-      address: owner.owner_address,
-      percentage: owner.percentage_relative_to_total_supply ?? 0,
-      label: owner.owner_address_label,
-      isContract: owner.is_contract,
-    })) ?? [];
+    owners?.result
+      ?.filter((owner) => Boolean(owner.owner_address?.trim()))
+      .map((owner) => ({
+        address: owner.owner_address.trim(),
+        percentage: owner.percentage_relative_to_total_supply ?? 0,
+        label: owner.owner_address_label?.trim() || undefined,
+        isContract:
+          typeof owner.is_contract === "boolean"
+            ? owner.is_contract
+            : undefined,
+      })) ?? [];
 
   const top10FromOwners = topHolders
     .slice(0, 10)
     .reduce((sum, holder) => sum + holder.percentage, 0);
 
-  const totalHolders = summary?.totalHolders;
+  const totalHolders =
+    summary?.totalHolders == null ? undefined : summary.totalHolders;
   const top10Concentration =
     summary?.holderDistribution?.top10?.supplyPercent ??
     (topHolders.length > 0 ? top10FromOwners : undefined);
-  const top25Concentration = summary?.holderDistribution?.top25?.supplyPercent;
+  const top25Raw = summary?.holderDistribution?.top25?.supplyPercent;
+  const top25Concentration =
+    top25Raw == null ? undefined : top25Raw;
 
   const hasAny =
     totalHolders !== undefined ||

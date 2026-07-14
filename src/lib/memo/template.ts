@@ -133,9 +133,15 @@ function buildRecommendation(scoring: ScoringResult): string {
     return "A few things look off. Check the contract and liquidity yourself before you do anything with this.";
   }
   if (scoring.riskLevel === "moderate") {
+    const meme = scoring.redFlags.some((f) =>
+      /memecoin|speculative/i.test(f.title),
+    );
+    if (meme) {
+      return "This reads as a speculative / meme token. Clean explorer data doesn’t make it low risk — treat size and exits carefully.";
+    }
     return "Take a closer look at who holds the supply and how liquid the market is.";
   }
-  return "Public data looks fairly clean here, but that still isn’t the same as “safe.” Do your own homework.";
+  return "Structural public checks look relatively calm here — that still isn’t a buy signal. Dig deeper yourself.";
 }
 
 function buildInferences(evidence: TokenEvidence, scoring: ScoringResult): string[] {

@@ -115,9 +115,9 @@ export const SCORING_THRESHOLDS = {
   top25High: 70,
   liquidityVeryLow: 10_000,
   liquidityLow: 50_000,
-  /** Verified + this deep → treat concentration as informational, not high caution. */
+  /** Trusted majors only: verified + this deep → soften CEX/bridge concentration. */
   bluechipMinLiquidity: 1_000_000,
-  /** Only apply liquidity/FDV ratio flags below this FDV (skip bluechips). */
+  /** Only apply liquidity/FDV ratio flags below this FDV (skip deepest majors). */
   fdvLiquidityCheckMax: 500_000_000,
   volumeToLiquidityLow: 0.05,
   volumeToLiquidityActivity: 0.02,
@@ -126,11 +126,18 @@ export const SCORING_THRESHOLDS = {
    * (avoids quiet-weekend false positives on deep major pools).
    */
   activityFlagMaxLiquidity: 50_000,
-  /** Points toward 0–100 risk score — one high flag alone is high caution. */
-  pointsHigh: 60,
-  pointsMedium: 30,
-  pointsLow: 8,
-  /** Label bands on the 0–100 score — one medium flag alone is moderate. */
+  /**
+   * Graduated flag weights — scores should land on many values (5, 12, 34…),
+   * not only 8 / 30 / 60.
+   */
+  pointsHigh: 48,
+  pointsMedium: 24,
+  pointsLow: 7,
+  /** Softest info bump (missing optional data, major-proxy note). */
+  pointsInfo: 4,
+  /** Memecoin baseline — alone keeps them at/above moderate band. */
+  memeBaselinePoints: 32,
+  /** Label bands on the 0–100 score. */
   scoreModerateMin: 30,
   scoreHighMin: 60,
 } as const;

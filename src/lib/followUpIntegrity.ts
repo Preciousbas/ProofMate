@@ -10,6 +10,20 @@ export class FollowUpIntegrityError extends Error {
   }
 }
 
+/** APIs / Flight often send null for missing optionals — treat like undefined. */
+const nullishString = (max: number) =>
+  z
+    .union([z.string().max(max), z.null(), z.undefined()])
+    .transform((v) => (v == null || v === "" ? undefined : v));
+
+const nullishFinite = z
+  .union([z.number().finite(), z.null(), z.undefined()])
+  .transform((v) => (v == null ? undefined : v));
+
+const nullishBool = z
+  .union([z.boolean(), z.null(), z.undefined()])
+  .transform((v) => (v == null ? undefined : v));
+
 const redFlagSchema = z.object({
   category: z.enum(["contract", "holders", "liquidity"]),
   severity: z.enum(["low", "medium", "high"]),
@@ -21,8 +35,8 @@ const redFlagSchema = z.object({
 const topHolderSchema = z.object({
   address: z.string().trim().min(1).max(128),
   percentage: z.number().finite(),
-  label: z.string().max(200).optional(),
-  isContract: z.boolean().optional(),
+  label: nullishString(200),
+  isContract: nullishBool,
 });
 
 export const tokenEvidenceSchema = z.object({
@@ -30,51 +44,56 @@ export const tokenEvidenceSchema = z.object({
   chain: z.string().trim().min(1).max(48),
   contract: z.object({
     verified: z.boolean(),
-    solidityClassName: z.string().max(200).optional(),
+    solidityClassName: nullishString(200),
     isProxy: z.boolean(),
-    implementation: z.string().max(128).optional(),
+    implementation: nullishString(128),
     sourceAvailable: z.boolean(),
-    compilerVersion: z.string().max(120).optional(),
-    explorerName: z.string().max(80).optional(),
-    mintAuthority: z.string().max(128).nullable().optional(),
-    freezeAuthority: z.string().max(128).nullable().optional(),
-    error: z.string().max(2_000).optional(),
+    compilerVersion: nullishString(120),
+    explorerName: nullishString(80),
+    mintAuthority: z
+      .union([z.string().max(128), z.null(), z.undefined()])
+      .transform((v) => (v === "" ? null : v ?? null)),
+    freezeAuthority: z
+      .union([z.string().max(128), z.null(), z.undefined()])
+      .transform((v) => (v === "" ? null : v ?? null)),
+    error: nullishString(2_000),
   }),
   holders: z.object({
-    totalHolders: z.number().finite().optional(),
-    top10Concentration: z.number().finite().optional(),
-    top25Concentration: z.number().finite().optional(),
+    totalHolders: nullishFinite,
+    top10Concentration: nullishFinite,
+    top25Concentration: nullishFinite,
     topHolders: z.array(topHolderSchema).max(50),
     available: z.boolean(),
-    error: z.string().max(2_000).optional(),
+    error: nullishString(2_000),
   }),
   market: z.object({
-    symbol: z.string().max(64).optional(),
-    name: z.string().max(200).optional(),
-    priceUsd: z.number().finite().optional(),
-    liquidityUsd: z.number().finite().optional(),
-    volume24h: z.number().finite().optional(),
-    fdv: z.number().finite().optional(),
-    marketCap: z.number().finite().optional(),
-    totalSupplyFormatted: z.string().max(120).optional(),
-    circulatingSupplyFormatted: z.string().max(120).optional(),
+    symbol: nullishString(64),
+    name: nullishString(200),
+    priceUsd: nullishFinite,
+    liquidityUsd: nullishFinite,
+    volume24h: nullishFinite,
+    fdv: nullishFinite,
+    marketCap: nullishFinite,
+    totalSupplyFormatted: nullishString(120),
+    circulatingSupplyFormatted: nullishString(120),
     pairCount: z.number().finite(),
-    bestPairAddress: z.string().max(128).optional(),
-    dexId: z.string().max(64).optional(),
+    bestPairAddress: nullishString(128),
+    dexId: nullishString(64),
     available: z.boolean(),
-    error: z.string().max(2_000).optional(),
+    error: nullishString(2_000),
   }),
   sources: z.array(z.string().max(2_000)).max(30),
-  fetchedAt: z.string().trim().min(1).max(64),
+  // ISO timestamps are ~24 chars; allow headroom for offsets / milliseconds.
+  fetchedAt: z.string().trim().min(1).max(80),
 });
 
 export const trustMemoSchema = z.object({
   tokenAddress: z.string().trim().min(1).max(128),
-  tokenSymbol: z.string().max(64).optional(),
-  tokenName: z.string().max(200).optional(),
+  tokenSymbol: nullishString(64),
+  tokenName: nullishString(200),
   riskLevel: z.enum(["low", "moderate", "high"]),
   riskLabel: z.string().trim().min(1).max(80),
-  riskScore: z.number().int().min(0).max(100),
+  riskScore: z.number().min(0).max(100),
   summary: z.string().trim().min(1).max(4_000),
   keyFacts: z.array(z.string().max(1_000)).max(40),
   redFlags: z.array(redFlagSchema).max(40),
@@ -83,7 +102,7 @@ export const trustMemoSchema = z.object({
   sources: z.array(z.string().max(2_000)).max(30),
   facts: z.array(z.string().max(1_000)).max(40),
   inferences: z.array(z.string().max(1_000)).max(20),
-  generatedAt: z.string().trim().min(1).max(64),
+  generatedAt: z.string().trim().min(1).max(80),
 });
 
 function flagTitleSet(flags: { title: string }[]): Set<string> {
@@ -98,6 +117,13 @@ function setsEqual(a: Set<string>, b: Set<string>): boolean {
   return true;
 }
 
+function formatZodError(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "unknown validation error";
+  const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+  return `${path}: ${issue.message}`;
+}
+
 /**
  * Zod-validate follow-up evidence/memo, then re-score evidence and ensure
  * the memo’s deterministic score/flags still match (rejects fabricated payloads).
@@ -109,19 +135,22 @@ export function parseFollowUpPayload(
   const evidenceParsed = tokenEvidenceSchema.safeParse(evidenceRaw);
   if (!evidenceParsed.success) {
     throw new FollowUpIntegrityError(
-      "Invalid evidence payload. Re-run analyze_token and pass its evidence object unchanged.",
+      `Invalid evidence payload (${formatZodError(evidenceParsed.error)}). Re-run analyze and retry the follow-up.`,
     );
   }
 
   const memoParsed = trustMemoSchema.safeParse(memoRaw);
   if (!memoParsed.success) {
     throw new FollowUpIntegrityError(
-      "Invalid memo payload. Re-run analyze_token and pass its memo object unchanged.",
+      `Invalid memo payload (${formatZodError(memoParsed.error)}). Re-run analyze and retry the follow-up.`,
     );
   }
 
   const evidence = evidenceParsed.data as TokenEvidence;
   const memo = memoParsed.data as TrustMemo;
+
+  // Normalize score comparison: template uses ints; Flight may send 60.0.
+  const memoScore = Math.round(memo.riskScore);
 
   if (!addressesEqual(evidence.tokenAddress, memo.tokenAddress)) {
     throw new FollowUpIntegrityError(
@@ -130,7 +159,7 @@ export function parseFollowUpPayload(
   }
 
   const scoring = scoreEvidence(evidence);
-  if (scoring.riskScore !== memo.riskScore) {
+  if (scoring.riskScore !== memoScore) {
     throw new FollowUpIntegrityError(
       "memo.riskScore does not match re-scored evidence. Do not fabricate or edit scores.",
     );
@@ -148,5 +177,8 @@ export function parseFollowUpPayload(
     );
   }
 
-  return { evidence, memo };
+  return {
+    evidence,
+    memo: { ...memo, riskScore: memoScore },
+  };
 }
