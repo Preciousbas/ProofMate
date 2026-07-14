@@ -50,7 +50,7 @@ DexScreener is public and needs no API key.
 - `GET /api/skill` — skill manifest Markdown (source also in `SKILL.md`)
 - `npm run mcp` — MCP stdio wrapper (see docs/mcp.md)
 
-See [docs/api.md](docs/api.md), [SKILL.md](SKILL.md), [docs/mcp.md](docs/mcp.md), and [docs/demo-script.md](docs/demo-script.md).
+See [docs/api.md](docs/api.md), [SKILL.md](SKILL.md) and [docs/mcp.md](docs/mcp.md).
 
 ## Demo tokens
 
