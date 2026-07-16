@@ -31,11 +31,68 @@ export interface TrustMemo {
   generatedAt: string;
 }
 
+/** Structured holder classification for concentration context. */
+export type HolderLabelType =
+  | "burn"
+  | "exchange"
+  | "lp"
+  | "contract"
+  | "team"
+  | "unknown";
+
 export interface TopHolder {
   address: string;
   percentage: number;
+  /** Human label from explorer/API or a derived display name */
   label?: string;
+  /** Structured type used for scoring + narrative */
+  labelType?: HolderLabelType;
+  /** Short risk framing (“burn address — not a sellable whale”) */
+  labelNote?: string;
   isContract?: boolean;
+}
+
+/** Supply share among labeled top holders (typically top 10). */
+export interface HolderDistributionAggregates {
+  burnedPct: number;
+  exchangePct: number;
+  lpPct: number;
+  contractPct: number;
+  teamPct: number;
+  unknownPct: number;
+  /**
+   * Top-10 concentration minus burn + exchange + LP share among those wallets.
+   * Lower = less “true whale” risk from the labeled slice.
+   */
+  effectiveWhalePct?: number;
+  /** burn + exchange + LP share inside the top-10 slice */
+  labeledNonWhalePct: number;
+}
+
+export type ChecklistValue = "yes" | "no" | "unknown";
+
+export interface ContractChecklistItem {
+  id: string;
+  label: string;
+  value: ChecklistValue;
+  detail?: string;
+}
+
+export type LiquidityLockStatus =
+  | "locked"
+  | "partial"
+  | "unlocked"
+  | "unknown";
+
+export interface LiquidityLockInfo {
+  status: LiquidityLockStatus;
+  /** Plain-language summary; always present — may say unknown */
+  summary: string;
+  provider?: string;
+  lockedPct?: number;
+  unlockAt?: string;
+  source?: string;
+  evidence?: string;
 }
 
 export interface TokenEvidence {
@@ -54,6 +111,11 @@ export interface TokenEvidence {
     /** Solana: mint / freeze authority notes */
     mintAuthority?: string | null;
     freezeAuthority?: string | null;
+    /**
+     * Short yes/no/unknown checklist from verified ABI/source (EVM)
+     * or mint/freeze authorities (Solana).
+     */
+    checklist?: ContractChecklistItem[];
     error?: string;
   };
   holders: {
@@ -61,6 +123,8 @@ export interface TokenEvidence {
     top10Concentration?: number;
     top25Concentration?: number;
     topHolders: TopHolder[];
+    /** Aggregates from labeled top holders when classification ran */
+    distribution?: HolderDistributionAggregates;
     available: boolean;
     error?: string;
   };
@@ -78,7 +142,11 @@ export interface TokenEvidence {
     circulatingSupplyFormatted?: string;
     pairCount: number;
     bestPairAddress?: string;
+    /** Other DEX pair addresses used for LP holder labeling */
+    pairAddresses?: string[];
     dexId?: string;
+    /** LP lock status when discoverable; otherwise honestly unknown */
+    liquidityLock?: LiquidityLockInfo;
     available: boolean;
     error?: string;
   };
@@ -108,4 +176,10 @@ export interface FollowUpResponse {
 
 export type ChatMessage =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; memo?: TrustMemo };
+  | {
+      role: "assistant";
+      content: string;
+      memo?: TrustMemo;
+      /** Unstyled helper line (e.g. “Using USDC on Ethereum”) — no raised panel. */
+      plain?: boolean;
+    };

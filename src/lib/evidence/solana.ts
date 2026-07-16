@@ -2,11 +2,19 @@ import { fetchJson } from "../http";
 import type { TopHolder } from "../types";
 import type { ContractVerification } from "./etherscan";
 import type { HoldersDistribution } from "./moralis";
+import { HOLDERS_NO_EVIDENCE, isInternalHoldersError } from "./holdersCopy";
 
 const SOLANA_RPC =
   process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 const SOLSCAN_PRO_BASE = "https://pro-api.solscan.io/v2.0";
 const MORALIS_SOL_BASE = "https://solana-gateway.moralis.io";
+
+/** Strip Solscan Pro / API-key mentions from any user-facing error string. */
+function publicSolanaError(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  if (isInternalHoldersError(raw)) return HOLDERS_NO_EVIDENCE;
+  return raw;
+}
 
 /** Official wrapped SOL mint — Solscan treats this as the liquid SOL wrapper. */
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
@@ -120,9 +128,16 @@ async function safeFetchJson<T>(
   }
 }
 
+/**
+ * Authorities use three states:
+ * - string — authority pubkey exists
+ * - null — explicitly revoked (successful RPC / Solscan read)
+ * - undefined — unknown (RPC fail / mint not found)
+ * Never map failures to null — that falsely looks like “revoked”.
+ */
 async function rpcGetMint(mint: string): Promise<{
-  mintAuthority: string | null;
-  freezeAuthority: string | null;
+  mintAuthority?: string | null;
+  freezeAuthority?: string | null;
   decimals?: number;
   supply?: string;
   error?: string;
@@ -141,8 +156,6 @@ async function rpcGetMint(mint: string): Promise<{
     const info = data.result?.value?.data?.parsed?.info;
     if (!info) {
       return {
-        mintAuthority: null,
-        freezeAuthority: null,
         error: "Mint account not found on Solana RPC",
       };
     }
@@ -154,8 +167,6 @@ async function rpcGetMint(mint: string): Promise<{
     };
   } catch (error) {
     return {
-      mintAuthority: null,
-      freezeAuthority: null,
       error: error instanceof Error ? error.message : "Solana RPC failed",
     };
   }
@@ -313,16 +324,12 @@ export async function getSolanaTokenBundle(
     );
   }
 
-  const mintRevoked = mintInfo.mintAuthority === null;
-  const freezeRevoked = mintInfo.freezeAuthority === null;
   const isWsol = mint === WSOL_MINT;
 
-  // Solscan “verified” when API says so; else treat official WSOL / fully
-  // revoked mint+freeze as program-verified for our scoring purposes.
-  const verified =
-    solscanVerified === true ||
-    isWsol ||
-    (mintRevoked && freezeRevoked && Boolean(name || symbol));
+  // “Verified” means Solscan curated listing (or official WSOL) — NOT
+  // “mint/freeze revoked”. Pump.fun tokens revoke both by default; that must
+  // not read as explorer verification.
+  const verified = solscanVerified === true || isWsol;
 
   const holdersAvailable =
     holderTotal !== undefined || topHolders.length > 0 || top10 !== undefined;
@@ -335,12 +342,13 @@ export async function getSolanaTokenBundle(
       explorerName: "Solscan",
       mintAuthority: mintInfo.mintAuthority,
       freezeAuthority: mintInfo.freezeAuthority,
-      error:
+      error: publicSolanaError(
         !verified && dataErrors.length
           ? dataErrors.join("; ")
           : mintInfo.error && !verified
             ? mintInfo.error
             : undefined,
+      ),
     },
     holders: holdersAvailable
       ? {
@@ -348,14 +356,15 @@ export async function getSolanaTokenBundle(
           top10Concentration: top10,
           topHolders,
           available: true,
-          error: dataErrors.length ? dataErrors.join("; ") : undefined,
+          error: publicSolanaError(
+            dataErrors.length ? dataErrors.join("; ") : undefined,
+          ),
         }
       : {
           topHolders: [],
           available: false,
-          error:
-            dataErrors.join("; ") ||
-            "No Solana holder feed available (add SOLSCAN_API_KEY for Solscan Pro)",
+          // Public copy stays neutral — never mention Solscan Pro / API keys.
+          error: HOLDERS_NO_EVIDENCE,
         },
     name,
     symbol,

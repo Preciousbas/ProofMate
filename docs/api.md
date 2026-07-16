@@ -2,7 +2,7 @@
 
 Base URL: your production origin (e.g. `https://your-app.vercel.app`)
 
-Machine-readable skill map: `GET /api/agent` · human skill manifesto: `GET /api/skill` (repo file: [`SKILL.md`](../SKILL.md))
+Skill map for agents: `GET /api/agent` · skill manifesto: `GET /api/skill` (repo file: [`SKILL.md`](../SKILL.md))
 
 ## Authentication
 
@@ -102,7 +102,7 @@ Analyze a token contract / mint.
 }
 ```
 
-CDN-friendly. Identical addresses share cached work briefly.
+CDN note: identical addresses share cached work briefly.
 
 **Errors:** `400` invalid address · `429` rate limit · `502` upstream failure
 
@@ -122,7 +122,7 @@ Prefer GET when calling from agents or browsers that can cache.
 
 ## `POST /api/follow-up` (`token_follow_up`)
 
-Grounded Q&A against a prior analysis.
+Ask a follow-up against a prior analysis.
 
 ```json
 {
@@ -135,20 +135,22 @@ Grounded Q&A against a prior analysis.
 **Response `200`**
 
 ```json
-{ "answer": "…", "grounded": true }
+{ "answer": "…", "grounded": true, "source": "rules" }
 ```
 
-Send the **unchanged** `evidence` + `memo` from analyze — there is no server-side session store.
+`source` is `rules`, `llm`, or `fallback`.
 
-The server Zod-validates both objects and **re-scores** evidence. If `riskScore`, `riskLevel`, or red-flag titles do not match the re-score, the request is rejected (`400`). Do not fabricate or edit those fields.
+Send the **unchanged** `evidence` + `memo` from analyze. There is no server-side session store.
 
-Answer pipeline: deterministic rules for common questions → optional grounded Groq for open-ended questions (schema-validated) → memo fallback. Response may include `source`: `rules` | `llm` | `fallback`.
+The server validates both objects and **re-scores** evidence. If `riskScore`, `riskLevel`, or red-flag titles do not match, the request is rejected (`400`). After a scoring redeploy, analyze the token again before follow-ups. Do not fabricate or edit those fields.
+
+Answer pipeline: rules for common questions → optional Groq for open questions (when enabled; invented numbers are rejected) → memo fallback. Set `PROOFMATE_FOLLOW_UP_LLM=0` to skip Groq.
 
 ---
 
 ## `GET /api/agent`
 
-Machine-readable ASP metadata (skills, chains, routes, framing, MCP entry).
+ASP metadata for agents (skills, chains, routes, framing, MCP entry).
 
 ## MCP (stdio)
 
@@ -162,9 +164,11 @@ See [mcp.md](./mcp.md). Run: `PROOFMATE_BASE_URL=<origin> PROOFMATE_API_KEY=<key
 |----------|----------|
 | `ETHERSCAN_API_KEY` | yes (EVM explorers) |
 | `MORALIS_API_KEY` | yes (holders / Solana meta) |
-| `SOLSCAN_API_KEY` | no |
+| `SOLSCAN_API_KEY` | no (Solscan Pro only) |
 | `ROBINHOOD_API_KEY` | no (Blockscout Pro for Robinhood) |
-| `GROQ_API_KEY` | no (memo polish + open-ended follow-ups) |
+| `GROQ_API_KEY` | no (memo polish + open follow-ups) |
+| `PROOFMATE_SKIP_MEMO_POLISH` | no (set `1` to skip memo polish) |
+| `PROOFMATE_FOLLOW_UP_LLM` | no (set `0` to disable open Groq follow-ups) |
 | `PROOFMATE_API_KEY` | **yes in production** (skill route auth) |
 | `UPSTASH_REDIS_REST_URL` | recommended in production (shared rate limits) |
 | `UPSTASH_REDIS_REST_TOKEN` | recommended in production |
@@ -180,4 +184,4 @@ Per IP (and a separate global budget) per rolling minute:
 | search / resolve | 60 | 400 |
 | follow-up | 120 | 800 |
 
-When `UPSTASH_REDIS_REST_*` is set, counters are shared across all serverless isolates (`X-RateLimit-Backend: upstash`). Otherwise limits are per-instance memory (`memory`) — fine for local, weak under multi-instance production traffic.
+When `UPSTASH_REDIS_REST_*` is set, counters are shared across all serverless isolates (`X-RateLimit-Backend: upstash`). Otherwise limits are per-instance memory (`memory`). Fine for local; weak under multi-instance production traffic.

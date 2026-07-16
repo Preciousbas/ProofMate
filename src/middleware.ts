@@ -1,19 +1,22 @@
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { authConfig } from "@/auth.config";
+
+const { auth } = NextAuth(authConfig);
 
 /**
- * Edge middleware — cheap early reject for obviously bad API traffic.
- * Per-IP quotas live in route handlers (node) with richer counters.
+ * Auth gate + cheap early reject for oversized / incomplete API traffic.
  */
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+export default auth((request) => {
+  const req = request as NextRequest;
+  const { pathname } = req.nextUrl;
 
   if (!pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 
-  // Block oversized Content-Length before the function boots.
-  const contentLength = request.headers.get("content-length");
+  const contentLength = req.headers.get("content-length");
   if (contentLength) {
     const size = Number(contentLength);
     if (Number.isFinite(size) && size > 512_000) {
@@ -24,11 +27,10 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // Analyze GET must include a token address query.
   if (
     pathname === "/api/analyze" &&
-    request.method === "GET" &&
-    !request.nextUrl.searchParams.get("tokenAddress")
+    req.method === "GET" &&
+    !req.nextUrl.searchParams.get("tokenAddress")
   ) {
     return NextResponse.json(
       { error: "tokenAddress query param is required" },
@@ -37,8 +39,10 @@ export function middleware(request: NextRequest) {
   }
 
   return NextResponse.next();
-}
+});
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|logo-mark.svg|icon|apple-icon|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

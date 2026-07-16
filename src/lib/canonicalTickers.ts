@@ -63,12 +63,78 @@ export const TICKER_HOME_CHAIN: Record<string, string> = {
   WBNB: "bsc",
   USDC: "eth",
   USDT: "eth",
+  DAI: "eth",
+  WBTC: "eth",
   SHIB: "eth",
   PEPE: "eth",
   FLOKI: "bsc",
   BONK: "sol",
   CASHCAT: "robinhood",
 };
+
+/**
+ * Multi-chain majors DexScreener ticker-search often misses (e.g. Eth USDC).
+ * Seeded into search so the picker can offer real Eth / Base / Sol CAs.
+ */
+export const MAJOR_TICKER_SEEDS: Record<
+  string,
+  Array<{ chainId: string; address: string; symbol: string; name: string }>
+> = {
+  USDC: [
+    {
+      chainId: "eth",
+      address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      symbol: "USDC",
+      name: "USD Coin",
+    },
+    {
+      chainId: "base",
+      address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      symbol: "USDC",
+      name: "USD Coin",
+    },
+    {
+      chainId: "sol",
+      address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      symbol: "USDC",
+      name: "USD Coin",
+    },
+  ],
+  USDT: [
+    {
+      chainId: "eth",
+      address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      symbol: "USDT",
+      name: "Tether USD",
+    },
+    {
+      chainId: "sol",
+      address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+      symbol: "USDT",
+      name: "USDT",
+    },
+  ],
+  DAI: [
+    {
+      chainId: "eth",
+      address: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+      symbol: "DAI",
+      name: "Dai Stablecoin",
+    },
+  ],
+  WBTC: [
+    {
+      chainId: "eth",
+      address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+      symbol: "WBTC",
+      name: "Wrapped BTC",
+    },
+  ],
+};
+
+export function getMajorTickerSeeds(ticker: string) {
+  return MAJOR_TICKER_SEEDS[ticker.trim().toUpperCase()] ?? [];
+}
 
 export const ZERO_EVM_ADDRESS =
   "0x0000000000000000000000000000000000000000";

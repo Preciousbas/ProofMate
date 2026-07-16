@@ -1,6 +1,7 @@
 import { fetchJson } from "../http";
 import {
   getCanonicalTicker,
+  getMajorTickerSeeds,
   isZeroEvmAddress,
   TICKER_HOME_CHAIN,
 } from "../canonicalTickers";
@@ -102,6 +103,63 @@ function hitRankScore(hit: TokenSearchHit, query: string): number {
 }
 
 /**
+ * Relative liquidity floor vs the deepest hit. Dust / copycat pools below
+ * this share of top liquidity are treated as noise for disambiguation.
+ * Kept low so majors like USDC still surface on Eth + Sol + BSC together.
+ */
+const MATERIAL_LIQ_RATIO = 0.02;
+/** Absolute floor so tiny zero-liq clones don’t crowd the picker. */
+const MATERIAL_MIN_LIQ_USD = 25_000;
+/** Cap choices so the picker stays scannable. */
+const MAX_DISAMBIGUATION_HITS = 10;
+
+/**
+ * Narrow search hits to genuine choices the user needs to pick between.
+ * - Prefer exact ticker matches when any exist
+ * - Drop dust clones vs the deepest pool (and under a small absolute floor)
+ * - Keep distinct chain+address hits (multiple CAs on Eth/Sol/BSC all show)
+ * - Home-chain mapping only boosts *rank* — it does NOT auto-pick
+ *
+ * length === 1 → safe to auto-analyze; length > 1 → show a picker
+ */
+export function narrowSearchHitsForDisambiguation(
+  hits: TokenSearchHit[],
+  query: string,
+): TokenSearchHit[] {
+  if (hits.length <= 1) return hits;
+
+  const exact = hits.filter((h) => exactSymbolMatch(h.symbol, query));
+  const pool = exact.length > 0 ? exact : hits;
+
+  const topLiq = Math.max(0, ...pool.map((h) => h.liquidityUsd ?? 0));
+  const floor =
+    topLiq > 0
+      ? Math.max(MATERIAL_MIN_LIQ_USD, topLiq * MATERIAL_LIQ_RATIO)
+      : 0;
+  const material =
+    topLiq > 0
+      ? pool.filter((h) => (h.liquidityUsd ?? 0) >= floor)
+      : pool;
+
+  // Dedupe by chain+address only — do not collapse to one winner per chain.
+  const byKey = new Map<string, TokenSearchHit>();
+  for (const hit of material) {
+    const key = `${hit.chainId}:${hit.address}`;
+    const existing = byKey.get(key);
+    if (
+      !existing ||
+      hitRankScore(hit, query) > hitRankScore(existing, query)
+    ) {
+      byKey.set(key, hit);
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => hitRankScore(b, query) - hitRankScore(a, query))
+    .slice(0, MAX_DISAMBIGUATION_HITS);
+}
+
+/**
  * Search DexScreener by ticker / name. Dedupes to one hit per chain+address.
  * Known majors (ETH/SOL/BNB) pin to their wrapped canonical contract first.
  */
@@ -184,7 +242,78 @@ export async function searchTokens(
     ];
   }
 
-  return results.slice(0, 8);
+  // Force known multi-chain majors into results (DexScreener search often
+  // omits Eth USDC etc. while returning Solana clones).
+  const seeds = getMajorTickerSeeds(q);
+  if (seeds.length > 0) {
+    const filterChainId = chainFilter
+      ? resolveChainId(chainFilter)
+      : undefined;
+    const seeded = await Promise.all(
+      seeds.map(async (seed) => {
+        if (filterChainId && seed.chainId !== filterChainId) return null;
+        const chain = getChain(seed.chainId);
+        if (!chain) return null;
+        const address = normalizeHitAddress(seed.address);
+        const existing = results.find(
+          (r) =>
+            r.chainId === seed.chainId && addressesEqual(r.address, address),
+        );
+        if (existing) return existing;
+
+        let liquidityUsd: number | undefined;
+        let volume24h: number | undefined;
+        let priceUsd: number | undefined;
+        try {
+          const fromDex = await resolveAddressChains(seed.address);
+          const match =
+            fromDex.find((h) => h.chainId === seed.chainId) ?? fromDex[0];
+          liquidityUsd = match?.liquidityUsd;
+          volume24h = match?.volume24h;
+          priceUsd = match?.priceUsd;
+        } catch {
+          // Seed anyway — picker still needs the CA even without liq.
+        }
+
+        return {
+          chainId: seed.chainId,
+          chainLabel: chain.label,
+          address,
+          name: seed.name,
+          symbol: seed.symbol,
+          liquidityUsd,
+          volume24h,
+          priceUsd,
+        } satisfies TokenSearchHit;
+      }),
+    );
+
+    const byKey = new Map<string, TokenSearchHit>();
+    for (const hit of [...seeded.filter(Boolean), ...results] as TokenSearchHit[]) {
+      const key = `${hit.chainId}:${hit.address}`;
+      const prev = byKey.get(key);
+      if (!prev || hitRankScore(hit, q) > hitRankScore(prev, q)) {
+        byKey.set(key, hit);
+      }
+    }
+    results = [...byKey.values()].sort(
+      (a, b) => hitRankScore(b, q) - hitRankScore(a, q),
+    );
+  }
+
+  // Always keep seeded majors; fill remaining slots from search.
+  const seedKeys = new Set(
+    seeds.map(
+      (s) => `${s.chainId}:${normalizeHitAddress(s.address)}`,
+    ),
+  );
+  const mustKeep = results.filter((r) =>
+    seedKeys.has(`${r.chainId}:${r.address}`),
+  );
+  const rest = results.filter(
+    (r) => !seedKeys.has(`${r.chainId}:${r.address}`),
+  );
+  return [...mustKeep, ...rest].slice(0, Math.max(12, mustKeep.length + 4));
 }
 
 /**

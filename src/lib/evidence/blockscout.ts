@@ -43,6 +43,7 @@ interface BlockscoutSmartContract {
   name?: string;
   compiler_version?: string;
   source_code?: string;
+  abi?: unknown;
   proxy_type?: string | null;
   implementations?: Array<{ address_hash?: string; address?: string }>;
 }
@@ -190,6 +191,12 @@ export async function getBlockscoutTokenBundle(
       implementation: impl,
       sourceAvailable: verified,
       compilerVersion: contractRes.data?.compiler_version,
+      sourceCode: contractRes.data?.source_code,
+      abi: contractRes.data?.abi
+        ? typeof contractRes.data.abi === "string"
+          ? contractRes.data.abi
+          : JSON.stringify(contractRes.data.abi)
+        : undefined,
       explorerName,
       error:
         !token && tokenRes.error

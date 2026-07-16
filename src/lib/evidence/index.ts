@@ -6,6 +6,7 @@ import {
   resolveChainId,
 } from "../chains";
 import type { TokenEvidence } from "../types";
+import { buildContractChecklist } from "./contractChecklist";
 import {
   dexScreenerSourceUrl,
   getTokenMarketSnapshot,
@@ -15,7 +16,13 @@ import {
   getContractVerification,
   getErc20TokenIdentity,
   getTokenTotalSupply,
+  type ContractVerification,
 } from "./etherscan";
+import {
+  buildHolderAggregates,
+  enrichTopHolders,
+} from "./holderLabels";
+import { detectLiquidityLock } from "./liquidityLocks";
 import {
   getErc20TokenMetadata,
   getHoldersDistribution,
@@ -24,6 +31,61 @@ import {
 } from "./moralis";
 import { getBlockscoutTokenBundle, blockscoutTokenUrl } from "./blockscout";
 import { getSolanaTokenBundle, solscanSourceUrl } from "./solana";
+
+function finalizeHolders(
+  holders: HoldersDistribution,
+  pairAddresses?: string[],
+): TokenEvidence["holders"] {
+  const topHolders = enrichTopHolders(holders.topHolders, pairAddresses);
+  const distribution = buildHolderAggregates(
+    topHolders,
+    holders.top10Concentration,
+  );
+  return {
+    totalHolders: holders.totalHolders,
+    top10Concentration: holders.top10Concentration,
+    top25Concentration: holders.top25Concentration,
+    topHolders,
+    distribution,
+    available: holders.available,
+    error: holders.error,
+  };
+}
+
+function contractFieldsFromVerification(
+  contract: ContractVerification & {
+    explorerName?: string;
+    mintAuthority?: string | null;
+    freezeAuthority?: string | null;
+  },
+  chain: string,
+): TokenEvidence["contract"] {
+  const checklist = buildContractChecklist({
+    verified: contract.verified,
+    isProxy: contract.isProxy,
+    implementation: contract.implementation,
+    sourceCode: contract.sourceCode,
+    abi: contract.abi,
+    solidityClassName: contract.solidityClassName,
+    mintAuthority: contract.mintAuthority,
+    freezeAuthority: contract.freezeAuthority,
+    chain,
+  });
+
+  return {
+    verified: contract.verified,
+    solidityClassName: contract.solidityClassName,
+    isProxy: contract.isProxy,
+    implementation: contract.implementation,
+    sourceAvailable: contract.sourceAvailable,
+    compilerVersion: contract.compilerVersion,
+    explorerName: contract.explorerName,
+    mintAuthority: contract.mintAuthority,
+    freezeAuthority: contract.freezeAuthority,
+    checklist,
+    error: contract.error,
+  };
+}
 
 async function fetchSolanaEvidence(
   tokenAddress: string,
@@ -35,6 +97,7 @@ async function fetchSolanaEvidence(
 
   const tokenName = market.name ?? bundle.name;
   const tokenSymbol = market.symbol ?? bundle.symbol;
+  const holders = finalizeHolders(bundle.holders, market.pairAddresses);
 
   const sources = [
     solscanSourceUrl(tokenAddress),
@@ -45,16 +108,15 @@ async function fetchSolanaEvidence(
   return {
     tokenAddress,
     chain: "sol",
-    contract: {
-      verified: bundle.contract.verified,
-      isProxy: false,
-      sourceAvailable: bundle.contract.sourceAvailable,
-      explorerName: "Solscan",
-      mintAuthority: bundle.contract.mintAuthority,
-      freezeAuthority: bundle.contract.freezeAuthority,
-      error: bundle.contract.error,
-    },
-    holders: bundle.holders,
+    contract: contractFieldsFromVerification(
+      {
+        ...bundle.contract,
+        mintAuthority: bundle.contract.mintAuthority,
+        freezeAuthority: bundle.contract.freezeAuthority,
+      },
+      "sol",
+    ),
+    holders,
     market: {
       symbol: tokenSymbol,
       name: tokenName,
@@ -67,7 +129,14 @@ async function fetchSolanaEvidence(
       circulatingSupplyFormatted: bundle.circulatingSupplyFormatted,
       pairCount: market.pairCount,
       bestPairAddress: market.bestPairAddress,
+      pairAddresses: market.pairAddresses,
       dexId: market.dexId,
+      liquidityLock: {
+        status: "unknown",
+        summary:
+          "Liquidity lock status unknown on Solana from current public sources.",
+        evidence: "Solana lock oracles not wired in Phase A",
+      },
       available:
         market.available ||
         Boolean(tokenName || tokenSymbol || bundle.totalSupplyFormatted),
@@ -96,6 +165,12 @@ async function fetchBlockscoutEvidence(
 
   const tokenName = market.name ?? bundle.name;
   const tokenSymbol = market.symbol ?? bundle.symbol;
+  const holders = finalizeHolders(bundle.holders, market.pairAddresses);
+  const liquidityLock = await detectLiquidityLock({
+    tokenAddress,
+    chain: resolveChainId(chain),
+    pairAddress: market.bestPairAddress,
+  });
 
   const sources = [
     blockscoutTokenUrl(apiBase, tokenAddress),
@@ -105,17 +180,11 @@ async function fetchBlockscoutEvidence(
   return {
     tokenAddress,
     chain: resolveChainId(chain),
-    contract: {
-      verified: bundle.contract.verified,
-      solidityClassName: bundle.contract.solidityClassName,
-      isProxy: bundle.contract.isProxy,
-      implementation: bundle.contract.implementation,
-      sourceAvailable: bundle.contract.sourceAvailable,
-      compilerVersion: bundle.contract.compilerVersion,
-      explorerName,
-      error: bundle.contract.error,
-    },
-    holders: bundle.holders,
+    contract: contractFieldsFromVerification(
+      { ...bundle.contract, explorerName },
+      resolveChainId(chain),
+    ),
+    holders,
     market: {
       symbol: tokenSymbol,
       name: tokenName,
@@ -127,7 +196,9 @@ async function fetchBlockscoutEvidence(
       totalSupplyFormatted: bundle.totalSupplyFormatted,
       pairCount: market.pairCount,
       bestPairAddress: market.bestPairAddress,
+      pairAddresses: market.pairAddresses,
       dexId: market.dexId,
+      liquidityLock,
       available:
         market.available ||
         Boolean(tokenName || tokenSymbol || bundle.totalSupplyFormatted),
@@ -146,6 +217,7 @@ async function fetchEvmEvidence(
   const moralisChain = chainConfig?.moralisChain;
   const etherscanChainId = chainConfig?.etherscanChainId;
   const explorerName = explorerDisplayName(chain);
+  const resolvedChain = resolveChainId(chain);
 
   const holdersPromise: Promise<HoldersDistribution> = moralisChain
     ? getHoldersDistribution(tokenAddress, moralisChain)
@@ -169,12 +241,17 @@ async function fetchEvmEvidence(
         error: "No explorer chain id",
       } as Awaited<ReturnType<typeof getTokenTotalSupply>>);
 
-  const [holders, market, metadata, supply] = await Promise.all([
-    holdersPromise,
-    getTokenMarketSnapshot(tokenAddress, chain),
-    metadataPromise,
-    supplyPromise,
-  ]);
+  const [holdersRaw, market, metadata, supply, liquidityLock] =
+    await Promise.all([
+      holdersPromise,
+      getTokenMarketSnapshot(tokenAddress, chain),
+      metadataPromise,
+      supplyPromise,
+      detectLiquidityLock({
+        tokenAddress,
+        chain: resolvedChain,
+      }),
+    ]);
 
   const contract = etherscanChainId
     ? await getContractVerification(tokenAddress, etherscanChainId)
@@ -203,6 +280,7 @@ async function fetchEvmEvidence(
 
   const tokenName = market.name ?? tokenIdentity.name ?? metadata.name;
   const tokenSymbol = market.symbol ?? tokenIdentity.symbol ?? metadata.symbol;
+  const holders = finalizeHolders(holdersRaw, market.pairAddresses);
 
   const sources = [
     etherscanSourceUrl(tokenAddress, chainConfig?.explorerTokenUrl),
@@ -212,19 +290,12 @@ async function fetchEvmEvidence(
 
   return {
     tokenAddress,
-    chain: resolveChainId(chain),
-    contract: {
-      ...contract,
-      explorerName,
-    },
-    holders: {
-      totalHolders: holders.totalHolders,
-      top10Concentration: holders.top10Concentration,
-      top25Concentration: holders.top25Concentration,
-      topHolders: holders.topHolders,
-      available: holders.available,
-      error: holders.error,
-    },
+    chain: resolvedChain,
+    contract: contractFieldsFromVerification(
+      { ...contract, explorerName },
+      resolvedChain,
+    ),
+    holders,
     market: {
       symbol: tokenSymbol,
       name: tokenName,
@@ -237,7 +308,20 @@ async function fetchEvmEvidence(
         supply.totalSupplyFormatted ?? metadata.totalSupplyFormatted,
       pairCount: market.pairCount,
       bestPairAddress: market.bestPairAddress,
+      pairAddresses: market.pairAddresses,
       dexId: market.dexId,
+      liquidityLock: {
+        ...liquidityLock,
+        // Attach pair context when we have it
+        evidence: [
+          liquidityLock.evidence,
+          market.bestPairAddress
+            ? `Best pair: ${market.bestPairAddress}`
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      },
       available: market.available || Boolean(tokenName || tokenSymbol),
       error: market.error,
     },

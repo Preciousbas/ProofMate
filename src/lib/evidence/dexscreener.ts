@@ -29,6 +29,8 @@ export interface TokenMarketSnapshot {
   marketCap?: number;
   pairCount: number;
   bestPairAddress?: string;
+  /** All pair addresses on the target chain (for LP holder labeling) */
+  pairAddresses?: string[];
   dexId?: string;
   available: boolean;
   error?: string;
@@ -67,6 +69,14 @@ export async function getTokenMarketSnapshot(
       ? bestPair.baseToken
       : bestPair.quoteToken;
 
+    const pairAddresses = [
+      ...new Set(
+        pairs
+          .map((pair) => pair.pairAddress)
+          .filter((addr): addr is string => Boolean(addr?.trim())),
+      ),
+    ];
+
     return {
       symbol: token.symbol,
       name: token.name,
@@ -77,6 +87,7 @@ export async function getTokenMarketSnapshot(
       marketCap: bestPair.marketCap,
       pairCount: pairs.length,
       bestPairAddress: bestPair.pairAddress,
+      pairAddresses,
       dexId: bestPair.dexId,
       available: true,
     };

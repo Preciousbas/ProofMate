@@ -2,7 +2,7 @@
 
 **Service:** ProofMate ASP — Token Due Diligence Agent  
 **Type:** A2MCP (Agent-to-MCP / HTTP)  
-**Positioning:** Research assistant for token red flags — not trading, not financial advice
+**About:** Research assistant for token red flags. Not trading. Not financial advice.
 
 Live discovery: `GET /api/agent` · skill Markdown: `GET /api/skill`
 
@@ -42,7 +42,7 @@ Public: `/api/agent`, `/api/skill`.
 | **Input** | `tokenAddress` — EVM `0x…` or Solana mint; optional `chain` (`eth`, `bsc`, `sol`, `robinhood`, …). Omit `chain` to auto-detect. |
 | **Method** | `GET /api/analyze?tokenAddress=…&chain=…` (preferred) or `POST /api/analyze` |
 | **Output** | `memo`, `evidence`, `sessionId` |
-| **Behavior** | Multi-source evidence (explorers / Moralis / DexScreener / Blockscout / Solscan path) → score 0–100 + trust memo with red flags. |
+| **Behavior** | Pulls public evidence (explorers, Moralis, DexScreener, Blockscout, Solana RPC / optional Solscan Pro) → score 0–100 + trust memo with red flags. On Solana, Verified means a Solscan curated listing (or WSOL), not merely revoked mint/freeze. |
 
 ### `token_follow_up`
 
@@ -50,8 +50,8 @@ Public: `/api/agent`, `/api/skill`.
 |--|--|
 | **Input** | `question`, `evidence`, `memo` (from a prior `analyze_token`) |
 | **Method** | `POST /api/follow-up` |
-| **Output** | `answer`, `grounded` |
-| **Behavior** | Answers from provided evidence/memo. Common questions use deterministic rules; open-ended questions use grounded Groq (when configured) with JSON schema validation. Server re-scores evidence and rejects fabricated score/flag payloads. |
+| **Output** | `answer`, `grounded`, optional `source` (`rules` \| `llm` \| `fallback`) |
+| **Behavior** | Common questions use deterministic rules. Open questions may use Groq when `GROQ_API_KEY` is set and `PROOFMATE_FOLLOW_UP_LLM` is not `0`; answers that invent numbers not in the memo/evidence are rejected and fall back. Server re-scores evidence and rejects fabricated score/flag payloads (ask the user to analyze again after a scoring deploy). |
 
 ## Supported chains (skill surface)
 
@@ -61,10 +61,10 @@ Coverage depth varies: market data via DexScreener for all; holders/contract dep
 
 ## Constraints
 
-- Public data only — not a security audit or trading signal
-- Missing upstream data → caution / unavailable flags, never “safe”
-- Always surface the product disclaimer to end users
-- `resolve_ticker` can pick a wrong duplicate ticker — when unsure, call `search_token` and disambiguate
+- Public data only. Not a security audit or trading signal.
+- Missing upstream data → caution / unavailable flags, never “safe”.
+- Always surface the product disclaimer to end users.
+- `resolve_ticker` can pick a wrong duplicate ticker. When unsure, call `search_token` and disambiguate.
 
 ## Example: resolve then analyze
 
@@ -98,11 +98,11 @@ x-api-key: <PROOFMATE_API_KEY>
 }
 ```
 
-## Workflow template (marketplace)
+## Suggested agent workflow
 
-1. **Resolve** — ticker → address+chain (`resolve_ticker` or `search_token`)  
-2. **Analyze** — multi-source evidence → scored trust memo  
-3. **Explain** — grounded follow-ups on holders, liquidity, contract, score  
+1. **Resolve** — ticker → address+chain (`resolve_ticker` or `search_token`)
+2. **Analyze** — public evidence → scored trust memo
+3. **Explain** — follow-ups on holders, liquidity, contract, score
 
 ## Machine metadata
 

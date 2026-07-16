@@ -72,6 +72,10 @@ export function formatPercent(value?: number): string {
   return `${value.toFixed(1)}%`;
 }
 
+/**
+ * Low-level address / bare-ticker extractor.
+ * Chat entry routing lives in `routeUserMessage()` (`intentRouter.ts`).
+ */
 export function parseUserInput(
   raw: string,
   options?: { allowTicker?: boolean },

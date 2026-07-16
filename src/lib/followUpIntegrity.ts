@@ -36,8 +36,52 @@ const topHolderSchema = z.object({
   address: z.string().trim().min(1).max(128),
   percentage: z.number().finite(),
   label: nullishString(200),
+  labelType: z
+    .union([
+      z.enum(["burn", "exchange", "lp", "contract", "team", "unknown"]),
+      z.null(),
+      z.undefined(),
+    ])
+    .transform((v) => v ?? undefined),
+  labelNote: nullishString(400),
   isContract: nullishBool,
 });
+
+const checklistItemSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  value: z.enum(["yes", "no", "unknown"]),
+  detail: nullishString(500),
+});
+
+const holderDistributionSchema = z
+  .object({
+    burnedPct: z.number().finite(),
+    exchangePct: z.number().finite(),
+    lpPct: z.number().finite(),
+    contractPct: z.number().finite(),
+    teamPct: z.number().finite(),
+    unknownPct: z.number().finite(),
+    effectiveWhalePct: nullishFinite,
+    labeledNonWhalePct: z.number().finite(),
+  })
+  .optional()
+  .or(z.null())
+  .transform((v) => v ?? undefined);
+
+const liquidityLockSchema = z
+  .object({
+    status: z.enum(["locked", "partial", "unlocked", "unknown"]),
+    summary: z.string().trim().min(1).max(1_000),
+    provider: nullishString(120),
+    lockedPct: nullishFinite,
+    unlockAt: nullishString(80),
+    source: nullishString(200),
+    evidence: nullishString(1_000),
+  })
+  .optional()
+  .or(z.null())
+  .transform((v) => v ?? undefined);
 
 export const tokenEvidenceSchema = z.object({
   tokenAddress: z.string().trim().min(1).max(128),
@@ -56,6 +100,7 @@ export const tokenEvidenceSchema = z.object({
     freezeAuthority: z
       .union([z.string().max(128), z.null(), z.undefined()])
       .transform((v) => (v === "" ? null : v ?? null)),
+    checklist: z.array(checklistItemSchema).max(20).optional(),
     error: nullishString(2_000),
   }),
   holders: z.object({
@@ -63,6 +108,7 @@ export const tokenEvidenceSchema = z.object({
     top10Concentration: nullishFinite,
     top25Concentration: nullishFinite,
     topHolders: z.array(topHolderSchema).max(50),
+    distribution: holderDistributionSchema,
     available: z.boolean(),
     error: nullishString(2_000),
   }),
@@ -78,7 +124,9 @@ export const tokenEvidenceSchema = z.object({
     circulatingSupplyFormatted: nullishString(120),
     pairCount: z.number().finite(),
     bestPairAddress: nullishString(128),
+    pairAddresses: z.array(z.string().max(128)).max(40).optional(),
     dexId: nullishString(64),
+    liquidityLock: liquidityLockSchema,
     available: z.boolean(),
     error: nullishString(2_000),
   }),
@@ -161,19 +209,19 @@ export function parseFollowUpPayload(
   const scoring = scoreEvidence(evidence);
   if (scoring.riskScore !== memoScore) {
     throw new FollowUpIntegrityError(
-      "memo.riskScore does not match re-scored evidence. Do not fabricate or edit scores.",
+      "This memo’s risk score no longer matches current scoring (deploy may have updated rules). Analyze the token again, then ask your follow-up.",
     );
   }
   if (scoring.riskLevel !== memo.riskLevel) {
     throw new FollowUpIntegrityError(
-      "memo.riskLevel does not match re-scored evidence.",
+      "This memo’s risk level no longer matches current scoring. Analyze the token again, then ask your follow-up.",
     );
   }
   if (
     !setsEqual(flagTitleSet(scoring.redFlags), flagTitleSet(memo.redFlags))
   ) {
     throw new FollowUpIntegrityError(
-      "memo.redFlags do not match re-scored evidence. Pass the analyze response unchanged.",
+      "This memo’s red flags no longer match current scoring (often after a redeploy). Analyze the token again, then ask your follow-up.",
     );
   }
 

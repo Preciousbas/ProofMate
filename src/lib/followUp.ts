@@ -16,6 +16,49 @@ function rulesAnswer(
   return { answer, grounded, source: "rules" };
 }
 
+/** Buy / invest / “should I…” — refuse before other topic matching. */
+function isAdviceSeekingQuestion(q: string): boolean {
+  if (
+    /\b(should i|would you|do you)\b/.test(q) &&
+    /\b(buy|invest|sell|hold|long|short|put money|allocate)\b/.test(q)
+  ) {
+    return true;
+  }
+  if (
+    /\b(buy|invest(?:ing|ment)?|sell|hodl)\b/.test(q) &&
+    /\b(recommend|recommendation|advice|advise|worth (?:it|buying)|good (?:buy|invest))\b/.test(
+      q,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(recommend|recommendation)\b/.test(q) &&
+    /\b(buy|invest|sell|token|this|it)\b/.test(q)
+  ) {
+    return true;
+  }
+  return (
+    /\bis (?:it|this) (?:a )?good (?:buy|investment|invest)\b/.test(q) ||
+    /\bworth (?:buying|investing)\b/.test(q)
+  );
+}
+
+function adviceRefusalAnswer(memo: TrustMemo): FollowUpResponse {
+  const label =
+    memo.tokenSymbol?.trim() ||
+    memo.tokenName?.trim() ||
+    "this token";
+
+  return rulesAnswer(
+    joinSections(
+      `I can’t recommend that you invest in or buy ${label}. I can only provide analysis to help you decide. Always do your own research.`,
+      `From this memo it’s ${memo.riskScore}/100 (${memo.riskLabel}). Ask about holders, liquidity, the contract, or the score if you want denser detail.`,
+    ),
+    true,
+  );
+}
+
 /**
  * Fast deterministic router for common follow-ups (holders / liquidity / contract / score).
  * Returns null when the question needs open-ended grounded reasoning.
@@ -27,6 +70,10 @@ export function answerFollowUpRules(
 ): FollowUpResponse | null {
   const q = question.toLowerCase();
 
+  if (isAdviceSeekingQuestion(q)) {
+    return adviceRefusalAnswer(memo);
+  }
+
   if (
     q.includes("top holder") ||
     q.includes("holder") ||
@@ -37,8 +84,8 @@ export function answerFollowUpRules(
     if (!evidence.holders.available) {
       return rulesAnswer(
         joinSections(
-          "I couldn’t get holder data",
-          "Moralis didn’t return a distribution for this address, so I can’t say how concentrated it is.",
+          "I couldn't get holder data for this one.",
+          "So I can't say how concentrated the supply is from here.",
         ),
         true,
       );
@@ -47,14 +94,27 @@ export function answerFollowUpRules(
     const wallets = evidence.holders.topHolders
       .slice(0, 5)
       .map((holder, index) => {
+        const type = holder.labelType ? ` [${holder.labelType}]` : "";
         const label = holder.label ? ` (${holder.label})` : "";
-        return `${index + 1}. ${formatAddress(holder.address)}${label} — ${formatPercent(holder.percentage)}`;
+        return `${index + 1}. ${formatAddress(holder.address)}${type}${label} — ${formatPercent(holder.percentage)}`;
       })
       .join("\n");
+
+    const dist = evidence.holders.distribution;
+    const context =
+      dist && dist.labeledNonWhalePct > 0
+        ? joinSections(
+            `Of the top slice: burn ${formatPercent(dist.burnedPct)}, exchange ${formatPercent(dist.exchangePct)}, LP ${formatPercent(dist.lpPct)}.`,
+            dist.effectiveWhalePct !== undefined
+              ? `Effective whale / unlabeled slice ≈ ${formatPercent(dist.effectiveWhalePct)} (top-10 minus burn/exchange/LP).`
+              : null,
+          )
+        : null;
 
     return rulesAnswer(
       joinSections(
         `Top 10 hold about ${formatPercent(evidence.holders.top10Concentration)} of supply.`,
+        context,
         evidence.holders.totalHolders
           ? `Total holders: ${evidence.holders.totalHolders.toLocaleString()}.`
           : null,
@@ -64,22 +124,29 @@ export function answerFollowUpRules(
     );
   }
 
-  if (q.includes("liquidity") || q.includes("volume") || q.includes("market")) {
+  if (q.includes("liquidity") || q.includes("volume") || q.includes("market") || q.includes("lock")) {
     if (!evidence.market.available) {
       return rulesAnswer(
         joinSections(
-          "No useful DEX market data",
+          "I don’t have useful DEX market data here.",
           "If there’s no real pair, it’s hard to price or exit this token cleanly.",
+          evidence.market.liquidityLock
+            ? `Lock status: ${evidence.market.liquidityLock.summary}`
+            : null,
         ),
         true,
       );
     }
 
+    const lock = evidence.market.liquidityLock;
     const snapshot = [
       `- Best-pair liquidity: ${formatUsd(evidence.market.liquidityUsd)}`,
       `- 24h volume: ${formatUsd(evidence.market.volume24h)}`,
       `- Active pairs: ${evidence.market.pairCount}`,
       evidence.market.dexId ? `- Main DEX: ${evidence.market.dexId}` : null,
+      lock
+        ? `- Liquidity lock: ${lock.status}${lock.provider ? ` (${lock.provider})` : ""} — ${lock.summary}`
+        : `- Liquidity lock: unknown`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -93,35 +160,57 @@ export function answerFollowUpRules(
 
     return rulesAnswer(
       joinSections(
-        `Market snapshot\n${snapshot}`,
-        signals ? `Liquidity flags\n${signals}` : "No liquidity red flags in this memo.",
+        `Here’s the market picture:\n${snapshot}`,
+        signals
+          ? `Liquidity flags from this memo:\n${signals}`
+          : "No liquidity red flags in this memo.",
       ),
       true,
     );
   }
 
-  if (q.includes("verified") || q.includes("contract") || q.includes("proxy")) {
+  if (
+    q.includes("verified") ||
+    q.includes("contract") ||
+    q.includes("proxy") ||
+    q.includes("checklist") ||
+    q.includes("mint") ||
+    q.includes("blacklist") ||
+    q.includes("renounc")
+  ) {
     const explorer =
       evidence.contract.explorerName ?? explorerDisplayName(evidence.chain);
+    const checklistLines =
+      evidence.contract.checklist?.map(
+        (item) =>
+          `- ${item.label}: ${item.value === "yes" ? "Yes" : item.value === "no" ? "No" : "Unknown"}${
+            item.detail ? ` (${item.detail})` : ""
+          }`,
+      ) ?? [];
+
     const facts = [
       evidence.market.name || evidence.market.symbol
         ? `- Token: ${[evidence.market.name, evidence.market.symbol].filter(Boolean).join(" / ")}`
         : null,
       `- Verified on ${explorer}: ${evidence.contract.verified ? "Yes" : "No"}`,
-      evidence.chain === "sol"
-        ? `- Mint authority: ${
-            evidence.contract.mintAuthority === null
-              ? "Revoked"
-              : evidence.contract.mintAuthority ?? "Unknown"
-          }`
-        : `- Proxy: ${evidence.contract.isProxy ? "Yes" : "No"}`,
-      evidence.chain === "sol"
-        ? `- Freeze authority: ${
-            evidence.contract.freezeAuthority === null
-              ? "Revoked"
-              : evidence.contract.freezeAuthority ?? "Unknown"
-          }`
-        : null,
+      checklistLines.length > 0
+        ? null
+        : evidence.chain === "sol"
+          ? `- Mint authority: ${
+              evidence.contract.mintAuthority === null
+                ? "Revoked"
+                : evidence.contract.mintAuthority ?? "Unknown"
+            }`
+          : `- Proxy: ${evidence.contract.isProxy ? "Yes" : "No"}`,
+      checklistLines.length > 0
+        ? null
+        : evidence.chain === "sol"
+          ? `- Freeze authority: ${
+              evidence.contract.freezeAuthority === null
+                ? "Revoked"
+                : evidence.contract.freezeAuthority ?? "Unknown"
+            }`
+          : null,
       evidence.contract.solidityClassName
         ? `- Solidity class name: ${evidence.contract.solidityClassName}`
         : null,
@@ -137,10 +226,13 @@ export function answerFollowUpRules(
 
     return rulesAnswer(
       joinSections(
-        `Contract\n${facts}`,
+        `Here’s what I can see on the contract:\n${facts}`,
+        checklistLines.length > 0
+          ? `Checklist:\n${checklistLines.join("\n")}`
+          : null,
         evidence.chain === "sol"
           ? "Token name/symbol comes from Solscan / DexScreener / Moralis where available."
-          : "Note: the displayed token name/symbol comes from ERC-20 / DexScreener, not the Solidity class name.",
+          : "Heads up: the displayed name/symbol comes from ERC-20 / DexScreener, not the Solidity class name.",
       ),
       true,
     );
@@ -160,9 +252,9 @@ export function answerFollowUpRules(
 
     return rulesAnswer(
       joinSections(
-        `Score: ${memo.riskScore}/100 (${memo.riskLabel})`,
+        `Score sits at ${memo.riskScore}/100 (${memo.riskLabel}).`,
         flagLines
-          ? `What pushed the score:\n${flagLines}`
+          ? `What pushed it:\n${flagLines}`
           : "Nothing major showed up in this public snapshot.",
         inferences ? `How I’m reading it:\n${inferences}` : null,
       ),
@@ -184,7 +276,7 @@ function fallbackAnswer(memo: TrustMemo): FollowUpResponse {
       `I can stick to this memo: ${memo.riskScore}/100 (${memo.riskLabel}).`,
       memo.summary,
       flagLines ? `Flags on file:\n${flagLines}` : "No red flags in this public snapshot.",
-      "Ask about holders, liquidity, the contract, or the risk score for denser detail.",
+      "Ask about holders, liquidity, the contract, or the risk score if you want denser detail.",
     ),
     grounded: true,
     source: "fallback",
@@ -192,8 +284,8 @@ function fallbackAnswer(memo: TrustMemo): FollowUpResponse {
 }
 
 /**
- * Rules first (cheap + deterministic), then grounded Groq for open questions,
- * then a memo-based fallback so the user never gets a dead end.
+ * Rules first (cheap + deterministic), then grounded Groq for open questions
+ * (rejected if the answer invents numbers), then a memo-based fallback.
  */
 export async function answerFollowUp(
   question: string,

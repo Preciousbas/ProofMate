@@ -3,15 +3,15 @@ export const PRODUCT_TAGLINE =
   "Checks public token data and flags what looks off. Not trading advice.";
 
 export const DISCLAIMER =
-  "ProofMate reads public chain and market data. It’s not financial advice, not an audit, and it won’t call a token safe or a scam. Dig deeper yourself before you act.";
+  "I read public chain and market data. This isn’t financial advice or an audit, and I won’t call a token safe or a scam. Dig deeper yourself before you act.";
 
 /** Bottom-of-page “What ProofMate does” — numbered, plain language. */
 export const WHAT_PROOFMATE_DOES = [
   "Pulls contract, holder, and market data from public APIs when those sources cover the chain.",
   "Gives you a memo with a score out of 100 and red flags you can expand.",
-  "Answers follow-ups from that same evidence. It won’t invent numbers.",
+  "Answers follow-ups from that same evidence. It won't invent numbers.",
   "Built for research. Not for placing trades.",
-  "Won’t stamp anything “safe” or “scam.” Treat every result as a starting point.",
+  "Won't stamp anything \"safe\" or \"scam.\" Treat every result as a starting point.",
 ] as const;
 
 export { DEFAULT_CHAIN_ID as DEFAULT_CHAIN, chainDisplayName } from "./chains";
@@ -83,6 +83,22 @@ export const CURATED_FOLLOW_UPS = [
   "Is the contract verified?",
 ] as const;
 
+/** Layer 3 power features — explicit triggers only (not default analyze). */
+export const LAYER3_ACTIONS = [
+  {
+    id: "compare",
+    label: "Compare with…",
+    /** Prefills the composer; user finishes with a ticker or address. */
+    inputPrefix: "/compare ",
+  },
+  {
+    id: "full_report",
+    label: "Generate full report",
+    /** Submitted as a user message when the chip is clicked. */
+    prompt: "Generate full report",
+  },
+] as const;
+
 export const API_TIMEOUT_MS = 12_000;
 export const CACHE_TTL_MS = 5 * 60 * 1000;
 /** CDN / shared-cache TTL for identical token analyzes (seconds). */
@@ -108,6 +124,38 @@ export const MAX_JSON_BODY_BYTES = 512_000;
 export const GROQ_API_BASE = "https://api.groq.com/openai/v1";
 export const GROQ_MEMO_MODEL = "llama-3.3-70b-versatile";
 
+/** Truthy env values: 1 / true / yes / on (case-insensitive). */
+export function envFlagEnabled(raw: string | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/** Falsy disable values: 0 / false / no / off. */
+export function envFlagDisabled(raw: string | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === "0" || v === "false" || v === "no" || v === "off";
+}
+
+/**
+ * Memo narrative polish via Groq. Off when GROQ_API_KEY missing or
+ * PROOFMATE_SKIP_MEMO_POLISH is set (faster analyzes for demos).
+ */
+export function isMemoPolishEnabled(): boolean {
+  if (!process.env.GROQ_API_KEY?.trim()) return false;
+  if (envFlagEnabled(process.env.PROOFMATE_SKIP_MEMO_POLISH)) return false;
+  return true;
+}
+
+/**
+ * Open-ended follow-up LLM. Off when no Groq key or
+ * PROOFMATE_FOLLOW_UP_LLM=0|false|off.
+ */
+export function isFollowUpLlmEnabled(): boolean {
+  if (!process.env.GROQ_API_KEY?.trim()) return false;
+  if (envFlagDisabled(process.env.PROOFMATE_FOLLOW_UP_LLM)) return false;
+  return true;
+}
+
 export const SCORING_THRESHOLDS = {
   holderCountLow: 500,
   top10High: 50,
@@ -115,8 +163,16 @@ export const SCORING_THRESHOLDS = {
   top25High: 70,
   liquidityVeryLow: 10_000,
   liquidityLow: 50_000,
-  /** Trusted majors only: verified + this deep → soften CEX/bridge concentration. */
+  /** Trusted majors only: deep market → soften CEX/bridge concentration. */
   bluechipMinLiquidity: 1_000_000,
+  /**
+   * Established memecoins (verified + this deep + enough holders): soften
+   * mint/blacklist/unlock stacking so Eth PEPE-style tokens don’t auto-hit 100.
+   */
+  establishedMemeMinLiquidity: 1_000_000,
+  establishedMemeMinHolders: 10_000,
+  /** Soft ceiling for established memes — still speculative, not “max danger”. */
+  establishedMemeScoreCap: 72,
   /** Only apply liquidity/FDV ratio flags below this FDV (skip deepest majors). */
   fdvLiquidityCheckMax: 500_000_000,
   volumeToLiquidityLow: 0.05,

@@ -51,6 +51,6 @@ Add to Cursor MCP settings (`~/.cursor/mcp.json` or project config):
 
 ## Notes
 
-- Stdio only (stdout is JSON-RPC — logs go to stderr).
-- `token_follow_up` needs the full `evidence` + `memo` objects from a prior `analyze_token` response (unchanged — server re-scores and rejects fabricated scores/flags).
+- Stdio only (stdout is JSON-RPC; logs go to stderr).
+- `token_follow_up` needs the full `evidence` + `memo` objects from a prior `analyze_token` response (unchanged). The server re-scores and rejects fabricated scores/flags; answers that invent numbers fall back to the memo summary.
 - When the deployed site has `PROOFMATE_API_KEY` set, MCP must send the same key via env.

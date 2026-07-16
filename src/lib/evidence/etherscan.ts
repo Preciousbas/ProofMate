@@ -23,6 +23,10 @@ export interface ContractVerification {
   implementation?: string;
   sourceAvailable: boolean;
   compilerVersion?: string;
+  /** Raw verified source (may be JSON multi-file blob from explorers) */
+  sourceCode?: string;
+  /** Contract ABI JSON string when verified */
+  abi?: string;
   error?: string;
 }
 
@@ -187,6 +191,11 @@ export async function getContractVerification(
       implementation: implementation || undefined,
       sourceAvailable: hasSource,
       compilerVersion: result.CompilerVersion || undefined,
+      sourceCode: hasSource ? result.SourceCode : undefined,
+      abi:
+        hasSource && result.ABI && result.ABI !== "Contract source code not verified"
+          ? result.ABI
+          : undefined,
     };
   } catch (error) {
     return {
