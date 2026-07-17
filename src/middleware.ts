@@ -27,16 +27,8 @@ export default auth((request) => {
     }
   }
 
-  if (
-    pathname === "/api/analyze" &&
-    req.method === "GET" &&
-    !req.nextUrl.searchParams.get("tokenAddress")
-  ) {
-    return NextResponse.json(
-      { error: "tokenAddress query param is required" },
-      { status: 400 },
-    );
-  }
+  // Note: missing-param validation for /api/analyze is handled inside the route
+  // handler, after the x402 payment gate — so unpaid calls get 402, not 400.
 
   return NextResponse.next();
 });
