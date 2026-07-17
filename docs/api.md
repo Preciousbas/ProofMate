@@ -4,24 +4,18 @@ Base URL: your production origin (e.g. `https://your-app.vercel.app`)
 
 Skill map for agents: `GET /api/agent` · skill manifesto: `GET /api/skill` (repo file: [`SKILL.md`](../SKILL.md))
 
-## Authentication
+## Authentication & x402 payment
 
-When `PROOFMATE_API_KEY` is set on the server (required for production ASP), skill routes require:
-
-```http
-x-api-key: <PROOFMATE_API_KEY>
-```
-
-or
-
-```http
-Authorization: Bearer <PROOFMATE_API_KEY>
-```
-
-Protected: `/api/analyze`, `/api/search`, `/api/resolve`, `/api/follow-up`  
+Skill routes: `/api/analyze`, `/api/search`, `/api/resolve`, `/api/follow-up`  
 Public: `/api/agent`, `/api/skill`  
 
-If the env var is unset (local dev), skill routes stay open. The website demo uses server actions and does not need a browser-exposed key.
+**Preferred (OKX marketplace):** configure `OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE`, and `PAY_TO_ADDRESS`. Unpaid skill calls return **HTTP 402** with a standard x402 `PAYMENT-REQUIRED` challenge at **$0.01** per call (X Layer `eip155:196` by default). Replay with a signed payment header for **200**.
+
+**Owner / MCP bypass:** when `PROOFMATE_API_KEY` is also set, callers may send `x-api-key` or `Authorization: Bearer` to skip payment.
+
+**Legacy (no x402 env):** if only `PROOFMATE_API_KEY` is set, missing keys return HTTP 401. If neither is set (local), skill routes stay open.
+
+The website demo uses server actions and does not need a browser-exposed key.
 ---
 
 ## `GET /api/search` (`search_token`)
@@ -169,7 +163,13 @@ See [mcp.md](./mcp.md). Run: `PROOFMATE_BASE_URL=<origin> PROOFMATE_API_KEY=<key
 | `GROQ_API_KEY` | no (memo polish + open follow-ups) |
 | `PROOFMATE_SKIP_MEMO_POLISH` | no (set `1` to skip memo polish) |
 | `PROOFMATE_FOLLOW_UP_LLM` | no (set `0` to disable open Groq follow-ups) |
-| `PROOFMATE_API_KEY` | **yes in production** (skill route auth) |
+| `PROOFMATE_API_KEY` | recommended (owner/MCP payment bypass) |
+| `OKX_API_KEY` | **yes for marketplace x402** |
+| `OKX_SECRET_KEY` | **yes for marketplace x402** |
+| `OKX_PASSPHRASE` | **yes for marketplace x402** |
+| `PAY_TO_ADDRESS` | **yes for marketplace x402** |
+| `X402_NETWORK` | no (default `eip155:196`) |
+| `X402_PRICE` | no (default `$0.01`) |
 | `UPSTASH_REDIS_REST_URL` | recommended in production (shared rate limits) |
 | `UPSTASH_REDIS_REST_TOKEN` | recommended in production |
 | `PROOFMATE_BASE_URL` | no (MCP clients — public site origin) |

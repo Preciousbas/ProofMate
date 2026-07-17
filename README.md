@@ -35,7 +35,14 @@ Open [http://localhost:3000](http://localhost:3000). You can try the chat as a g
 | `AUTH_URL` | Yes | App origin (`http://localhost:3000` locally) |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | For Google | Google OAuth (email/password works without these) |
 | `DATABASE_URL` | Yes | Neon Postgres connection string |
-| `PROOFMATE_API_KEY` | Prod yes | Auth for skill HTTP routes (ASP / MCP) |
+| `PROOFMATE_API_KEY` | Prod recommended | Owner/MCP bypass for skill routes (optional when x402 is on) |
+| `OKX_API_KEY` | Prod yes (marketplace) | OKX facilitator HMAC key for x402 |
+| `OKX_SECRET_KEY` | Prod yes (marketplace) | OKX facilitator secret |
+| `OKX_PASSPHRASE` | Prod yes (marketplace) | OKX facilitator passphrase |
+| `PAY_TO_ADDRESS` | Prod yes (marketplace) | Wallet that receives `$0.01` per skill call |
+| `X402_NETWORK` | No | Default `eip155:196` (X Layer mainnet) |
+| `X402_PRICE` | No | Default `$0.01` |
+| `OKX_BASE_URL` | No | Facilitator base URL override |
 | `UPSTASH_REDIS_REST_URL` | Prod recommended | Shared rate limits across serverless isolates |
 | `UPSTASH_REDIS_REST_TOKEN` | Prod recommended | Upstash REST token |
 | `GROQ_API_KEY` | No | Memo polish + open follow-ups |
@@ -106,7 +113,9 @@ Set these in Vercel → Project → Settings → Environment Variables (Producti
 | `AUTH_URL` | Yes (your production URL) |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Yes |
 | `DATABASE_URL` | Yes |
-| `PROOFMATE_API_KEY` | Yes |
+| `PROOFMATE_API_KEY` | Recommended (MCP / owner bypass) |
+| `OKX_API_KEY` / `OKX_SECRET_KEY` / `OKX_PASSPHRASE` | Yes for marketplace x402 |
+| `PAY_TO_ADDRESS` | Yes for marketplace x402 |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Recommended (global rate limits) |
 | `GROQ_API_KEY` | No |
 | `PROOFMATE_SKIP_MEMO_POLISH` | No (set `1` for faster demos) |
@@ -117,9 +126,9 @@ Set these in Vercel → Project → Settings → Environment Variables (Producti
 
 Run `npm run db:push` against production `DATABASE_URL` once (or use Drizzle migrations) before users sign in. Add the production Google redirect URI: `https://<your-domain>/api/auth/callback/google`.
 
-When `PROOFMATE_API_KEY` is set, ASP/MCP callers must send `x-api-key: <key>` or `Authorization: Bearer <key>`. The website demo uses server actions and does **not** expose the key to the browser. `/api/agent` and `/api/skill` stay public for discovery.
+When x402 is configured, unpaid ASP skill calls return **HTTP 402**. A valid `PROOFMATE_API_KEY` still bypasses payment for MCP/owner tooling. The website demo uses server actions and does **not** expose the key to the browser. `/api/agent` and `/api/skill` stay public for discovery.
 
-**Smoke after deploy:** `GET /api/agent`, then with the API key: `GET /api/resolve?q=USDC`, analyze USDC on eth, and one follow-up question.
+**Smoke after deploy:** `GET /api/agent` (check `payment.enabled`), then unpaid `GET /api/resolve?q=USDC` should return **402**. With the API key: resolve + analyze USDC on eth, and one follow-up question.
 
 Local: `npm run dev` (API key optional for local curl).
 

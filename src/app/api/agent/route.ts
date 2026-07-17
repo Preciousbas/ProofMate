@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
-import { isAspAuthEnabled } from "@/lib/aspAuth";
+import { isAspAuthEnabled, isAspProtected } from "@/lib/aspAuth";
 import { DISCLAIMER, PRODUCT_NAME, PRODUCT_TAGLINE } from "@/lib/constants";
 import { SUPPORTED_CHAINS } from "@/lib/chains";
+import { isX402Configured, x402DiscoveryMeta } from "@/lib/x402";
 
 export const runtime = "nodejs";
 
 /** Machine-readable ASP / A2MCP metadata for OKX.AI reviewers and agent callers. */
 export async function GET() {
-  const authRequired = isAspAuthEnabled();
+  const authRequired = isAspAuthEnabled() && !isX402Configured();
+  const payment = x402DiscoveryMeta();
+  const protectedSkills = isAspProtected();
+
   return NextResponse.json(
     {
       name: PRODUCT_NAME,
@@ -16,10 +20,13 @@ export async function GET() {
       type: "A2MCP",
       categories: ["Finance Copilot", "Software Utility"],
       disclaimer: DISCLAIMER,
+      payment,
       auth: {
         required: authRequired,
-        whenEnabled:
-          "Set PROOFMATE_API_KEY on the server. Skill routes require x-api-key or Authorization: Bearer.",
+        apiKeyBypass: isAspAuthEnabled(),
+        whenEnabled: payment.enabled
+          ? "Unpaid skill calls return HTTP 402 (x402). Optional PROOFMATE_API_KEY bypasses payment for owner/MCP tooling."
+          : "Set PROOFMATE_API_KEY on the server. Skill routes require x-api-key or Authorization: Bearer.",
         headers: ["x-api-key", "Authorization: Bearer <PROOFMATE_API_KEY>"],
         publicDiscovery: ["/api/agent", "/api/skill"],
       },
@@ -35,7 +42,9 @@ export async function GET() {
             "Search tokens by ticker or name across supported chains. Returns ranked candidates.",
           method: "GET",
           path: "/api/search",
-          auth: authRequired,
+          auth: protectedSkills,
+          payment: payment.enabled,
+          price: payment.enabled ? payment.price : undefined,
           query: {
             q: "PEPE | CASHCAT | …",
             chain: "optional — eth | bsc | sol | robinhood | all | …",
@@ -47,7 +56,9 @@ export async function GET() {
             "Resolve a ticker to one best address+chain (canonical majors or top search hit). Returns a ready analyze URL.",
           method: "GET",
           path: "/api/resolve",
-          auth: authRequired,
+          auth: protectedSkills,
+          payment: payment.enabled,
+          price: payment.enabled ? payment.price : undefined,
           query: {
             q: "ETH | SOL | BNB | PEPE | …",
             chain: "optional chain filter",
@@ -59,7 +70,9 @@ export async function GET() {
             "Fetch public on-chain and market data and return a scored trust memo with red flags.",
           method: "GET",
           path: "/api/analyze",
-          auth: authRequired,
+          auth: protectedSkills,
+          payment: payment.enabled,
+          price: payment.enabled ? payment.price : undefined,
           query: {
             tokenAddress: "0x… or Solana mint",
             chain: "optional — omit to auto-detect",
@@ -76,7 +89,9 @@ export async function GET() {
             "Answer a follow-up using the evidence and memo from a prior analyze call. Common questions use deterministic rules; open-ended ones use grounded Groq when configured. Server re-scores evidence; fabricated memos are rejected.",
           method: "POST",
           path: "/api/follow-up",
-          auth: authRequired,
+          auth: protectedSkills,
+          payment: payment.enabled,
+          price: payment.enabled ? payment.price : undefined,
           body: {
             question: "string",
             evidence: "TokenEvidence from analyze (unchanged)",

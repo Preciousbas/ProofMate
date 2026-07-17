@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { requireAspAuth } from "@/lib/aspAuth";
 import {
   RATE_LIMIT_ANALYZE_PER_MIN,
@@ -7,6 +7,7 @@ import {
 import { resolveTicker } from "@/lib/resolveTicker";
 import { enforceRateLimits, rateLimitHeaders } from "@/lib/rateLimit";
 import { clientErrorStatus, clientIp } from "@/lib/requestGuards";
+import { withAspPayment } from "@/lib/x402";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -15,7 +16,7 @@ export const maxDuration = 15;
  * ASP skill: resolve_ticker
  * Pick one best token for a ticker/symbol so agents can call analyze_token next.
  */
-export async function GET(request: Request) {
+async function getHandler(request: NextRequest) {
   try {
     const authError = requireAspAuth(request);
     if (authError) return authError;
@@ -41,7 +42,10 @@ export async function GET(request: Request) {
 
     if (!q) {
       return NextResponse.json(
-        { error: "q query param is required (ticker or symbol, e.g. PEPE, ETH)" },
+        {
+          error:
+            "q query param is required (ticker or symbol, e.g. PEPE, ETH)",
+        },
         { status: 400 },
       );
     }
@@ -86,3 +90,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 }
+
+export const GET = withAspPayment(
+  getHandler,
+  "ProofMate resolve_ticker — resolve a ticker to one best address+chain",
+);

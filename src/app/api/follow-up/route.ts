@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getFollowUpAnswer } from "@/lib/analyze";
 import { requireAspAuth } from "@/lib/aspAuth";
 import {
@@ -11,11 +11,12 @@ import {
 } from "@/lib/followUpIntegrity";
 import { enforceRateLimits, rateLimitHeaders } from "@/lib/rateLimit";
 import { clientIp, readJsonBody } from "@/lib/requestGuards";
+import { withAspPayment } from "@/lib/x402";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-export async function POST(request: Request) {
+async function postHandler(request: NextRequest) {
   try {
     const authError = requireAspAuth(request);
     if (authError) return authError;
@@ -102,3 +103,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const POST = withAspPayment(
+  postHandler,
+  "ProofMate token_follow_up — grounded Q&A on a prior trust memo",
+);

@@ -6,14 +6,18 @@
 
 Live discovery: `GET /api/agent` · skill Markdown: `GET /api/skill`
 
-## Auth
-
-When `PROOFMATE_API_KEY` is configured on the server, skill calls require:
-
-`x-api-key: <PROOFMATE_API_KEY>` or `Authorization: Bearer <PROOFMATE_API_KEY>`
+## Auth & payment (x402)
 
 Protected skills: `search_token`, `resolve_ticker`, `analyze_token`, `token_follow_up`.  
 Public: `/api/agent`, `/api/skill`.
+
+When OKX x402 is configured (`OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE`, `PAY_TO_ADDRESS`):
+
+- Unpaid skill calls return **HTTP 402** with a standard `PAYMENT-REQUIRED` challenge (**$0.01** / call on X Layer `eip155:196` by default).
+- Replay with a signed payment header to receive **200**.
+- Optional owner/MCP bypass: `x-api-key: <PROOFMATE_API_KEY>` or `Authorization: Bearer <PROOFMATE_API_KEY>` (skips payment).
+
+When x402 is not configured and `PROOFMATE_API_KEY` is set, skill calls require the API key (HTTP 401 if missing).
 
 ## Skills
 

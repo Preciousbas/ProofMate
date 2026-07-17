@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { requireAspAuth } from "@/lib/aspAuth";
 import {
   RATE_LIMIT_ANALYZE_PER_MIN,
@@ -7,12 +7,13 @@ import {
 import { searchTokens } from "@/lib/evidence/tokenSearch";
 import { enforceRateLimits, rateLimitHeaders } from "@/lib/rateLimit";
 import { clientErrorStatus, clientIp } from "@/lib/requestGuards";
+import { withAspPayment } from "@/lib/x402";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
 
 /** Ticker / name search via DexScreener — ASP skill: search_token. */
-export async function GET(request: Request) {
+async function getHandler(request: NextRequest) {
   try {
     const authError = requireAspAuth(request);
     if (authError) return authError;
@@ -59,3 +60,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 }
+
+export const GET = withAspPayment(
+  getHandler,
+  "ProofMate search_token — find tokens by ticker or name",
+);

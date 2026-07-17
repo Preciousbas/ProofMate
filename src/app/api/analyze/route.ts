@@ -1,5 +1,5 @@
 import { analyzeToken } from "@/lib/analyze";
-import { isAspAuthEnabled, requireAspAuth } from "@/lib/aspAuth";
+import { isAspProtected, requireAspAuth } from "@/lib/aspAuth";
 import {
   ANALYZE_CDN_S_MAXAGE,
   ANALYZE_CDN_SWR,
@@ -18,7 +18,8 @@ import {
   readJsonBody,
 } from "@/lib/requestGuards";
 import { isValidTokenAddress, normalizeTokenAddress } from "@/lib/validation";
-import { NextResponse } from "next/server";
+import { withAspPayment } from "@/lib/x402";
+import { type NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -56,8 +57,8 @@ function analyzeResponseHeaders(
   resolvedChain: string,
   tokenAddress: string,
 ): HeadersInit {
-  // Public CDN cache is unsafe once auth is on (responses must not leak without key).
-  const cacheHeaders = isAspAuthEnabled()
+  // Public CDN cache is unsafe once auth/payment is on.
+  const cacheHeaders = isAspProtected()
     ? { "Cache-Control": "private, no-store" }
     : analyzeCdnHeaders(ANALYZE_CDN_S_MAXAGE, ANALYZE_CDN_SWR);
 
@@ -83,7 +84,7 @@ async function runAnalyze(
   });
 }
 
-export async function GET(request: Request) {
+async function getHandler(request: NextRequest) {
   try {
     const authError = requireAspAuth(request);
     if (authError) return authError;
@@ -115,7 +116,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: NextRequest) {
   try {
     const authError = requireAspAuth(request);
     if (authError) return authError;
@@ -153,3 +154,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status });
   }
 }
+
+export const GET = withAspPayment(
+  getHandler,
+  "ProofMate analyze_token — scored trust memo from public on-chain and market data",
+);
+
+export const POST = withAspPayment(
+  postHandler,
+  "ProofMate analyze_token — scored trust memo from public on-chain and market data",
+);
