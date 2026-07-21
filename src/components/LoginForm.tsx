@@ -1,16 +1,20 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   signInWithEmailAction,
   signInWithGoogleAction,
   signUpWithEmailAction,
   type AuthFormState,
 } from "@/app/actions/auth";
+import { markGuestEntry } from "@/lib/guestEntry";
+import { createGuestConversation } from "@/lib/guestChatStore";
 
 const initialState: AuthFormState = {};
 
 export function LoginForm() {
+  const router = useRouter();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [signInState, signInAction, signInPending] = useActionState(
     signInWithEmailAction,
@@ -24,6 +28,12 @@ export function LoginForm() {
   const pending = signInPending || signUpPending;
   const error =
     mode === "signin" ? signInState.error : signUpState.error;
+
+  function continueAsGuest() {
+    markGuestEntry();
+    const conversation = createGuestConversation();
+    router.push(`/chat/${conversation.id}`);
+  }
 
   return (
     <div className="mt-6 space-y-5">
@@ -137,9 +147,13 @@ export function LoginForm() {
               Sign up
             </button>
             <span className="text-slate-600"> · </span>
-            <a href="/" className="text-slate-300 hover:text-white hover:underline">
+            <button
+              type="button"
+              onClick={continueAsGuest}
+              className="text-slate-300 hover:text-white hover:underline"
+            >
               Sign up later
-            </a>
+            </button>
           </>
         ) : (
           <>
@@ -152,14 +166,19 @@ export function LoginForm() {
               Sign in
             </button>
             <span className="text-slate-600"> · </span>
-            <a href="/" className="text-slate-300 hover:text-white hover:underline">
+            <button
+              type="button"
+              onClick={continueAsGuest}
+              className="text-slate-300 hover:text-white hover:underline"
+            >
               Sign up later
-            </a>
+            </button>
           </>
         )}
       </p>
       <p className="text-xs text-slate-500">
-        Guest chats stay in this tab only. They're gone if you refresh or leave.
+        Guest chats stay in this browser tab only. Sign in to save chats across
+        devices.
       </p>
     </div>
   );

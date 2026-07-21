@@ -12,7 +12,9 @@ import {
   setSidebarCollapsed,
   type StoredConversation,
 } from "@/lib/chatStorage";
+import { clearGuestEntry, markGuestEntry } from "@/lib/guestEntry";
 import {
+  clearGuestConversations,
   createGuestConversation,
   listGuestConversations,
 } from "@/lib/guestChatStore";
@@ -61,6 +63,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [refreshConversations, status]);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+    clearGuestEntry();
+    clearGuestConversations();
+  }, [status]);
+
+  useEffect(() => {
     function onRefresh() {
       void refreshConversations();
     }
@@ -86,6 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         router.push(`/chat/${conversation.id}`);
         return;
       }
+      markGuestEntry();
       const conversation = createGuestConversation();
       await refreshConversations();
       router.push(`/chat/${conversation.id}`);
@@ -129,7 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         {!isAuthed && !collapsed && (
           <div className="shrink-0 border-b border-surface-border/60 bg-surface/80 px-4 py-2 text-center text-xs text-slate-400 md:px-6">
-            Guest mode — chats are lost if you refresh or leave.{" "}
+            Guest mode — chats stay in this tab only.{" "}
             <a href="/login" className="text-accent hover:underline">
               Sign in to save
             </a>

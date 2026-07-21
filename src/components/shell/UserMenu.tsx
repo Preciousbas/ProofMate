@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { signOutAction } from "@/app/actions/auth";
 import { clearClientSession } from "@/lib/clientSession";
+import { clearGuestEntry } from "@/lib/guestEntry";
 import { clearGuestConversations } from "@/lib/guestChatStore";
 import { IconUser } from "./icons";
 
@@ -38,6 +39,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
     setLoggingOut(true);
     setOpen(false);
     clearClientSession();
+    clearGuestEntry();
     clearGuestConversations();
     await signOutAction();
   }

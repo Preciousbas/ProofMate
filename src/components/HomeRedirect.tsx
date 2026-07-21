@@ -5,11 +5,10 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { getOrCreateLatestChatAction } from "@/app/actions/chats";
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from "@/lib/constants";
-import { getOrCreateLatestGuestConversationId } from "@/lib/guestChatStore";
 
 /**
- * Routes `/` into the latest chat. Shows an immediate empty-chat shell
- * (including the composer) so login / guest entry never looks blank.
+ * Routes `/` into the authenticated user's latest chat.
+ * Signed-out visitors are sent to the login / signup entry first.
  */
 export function HomeRedirect() {
   const router = useRouter();
@@ -25,12 +24,10 @@ export function HomeRedirect() {
         if (!cancelled) router.replace(`/chat/${id}`);
         return;
       }
-      const id = getOrCreateLatestGuestConversationId();
-      if (!cancelled) router.replace(`/chat/${id}`);
+      if (!cancelled) router.replace("/login");
     })().catch(() => {
       if (!cancelled) {
-        const id = getOrCreateLatestGuestConversationId();
-        router.replace(`/chat/${id}`);
+        router.replace("/login");
       }
     });
 
